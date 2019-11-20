@@ -1,13 +1,31 @@
-# Proxyfuzz: a TCP and UDP proxy man-in-the-middle fuzzer
-# v 0.1
-# By Rodrigo Marcos
-# http://www.theartoffuzzing.com
+
+#!/usr/bin/python3
+#    Proxyfuzz - On the fly TCP and UDP network fuzzer
+#    Copyright (C) 2011 Rodrigo Marcos
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#    Proxyfuzz: a TCP and UDP proxy man-in-the-middle fuzzer
+#    v 0.1
+#    By Rodrigo Marcos
+#    http://www.secforce.co.uk
 
 from twisted.protocols import portforward
 from twisted.internet.protocol import DatagramProtocol
 from twisted.internet import reactor
 import getopt, sys
-from random import randint
+from random import randint, randrange
 
 
 # UDP Proxy stuff
@@ -21,7 +39,7 @@ class Client(DatagramProtocol):
     def startProtocol(self):
         self.transport.connect(desthost, destport)
 
-    def datagramReceived(self, data, (host, port)):
+    def datagramReceived(self, data, host_port):
         global verbose
         global notuntil
         global request
@@ -33,15 +51,17 @@ class Client(DatagramProtocol):
             else:
                 data = fuzz(data)
         if verbose:
-            print "Server ------> Client"
-            print "%r" % data
+            print("Server ------> Client")
+            print(data)
+        addr=(self.host, self.port)
+        self.server.transport.write(data, addr)
 
-        self.server.transport.write(data, (self.host, self.port))
 
 class Server(DatagramProtocol):
     client = None
 
-    def datagramReceived(self, data, (host, port)):
+    def datagramReceived(self, data, host_port):
+        host, port = host_port
         if not self.client or self.client.host != host or self.client.port != port:
             self.client = Client(self, host, port)
             reactor.listenUDP(0, self.client)
@@ -57,9 +77,11 @@ class Server(DatagramProtocol):
             else:
                 data = fuzz(data)
         if verbose:
-            print "Client ------> Server"
-            print "%r" % data
-        self.client.transport.write(data, (desthost, destport))
+            print("Client ------> Server")
+            print(data)
+        addr=(desthost, destport)
+        self.client.transport.write(data, addr)
+
 
 # TCP proxy stuff
 
@@ -76,12 +98,14 @@ def server_dataReceived(self, data):
             data = fuzz(data)
 
     if verbose:
-        print "Client ------> server"
-        print "%r" % data
+        print("Client ------> server")
+        print(data)
 
     portforward.Proxy.dataReceived(self, data)
 
+
 portforward.ProxyServer.dataReceived = server_dataReceived
+
 
 def client_dataReceived(self, data):
     global verbose
@@ -95,67 +119,80 @@ def client_dataReceived(self, data):
         else:
             data = fuzz(data)
     if verbose:
-        print "Server ------> Client"
-        print "%r" % data
+        print("Server ------> Client")
+        print(data)
 
     portforward.Proxy.dataReceived(self, data)
 
+
 portforward.ProxyClient.dataReceived = client_dataReceived
 
+overflowstrings = ["A" * 255, "A" * 256, "A" * 257, "A" * 420, "A" * 511, "A" * 512, "A" * 1023, "A" * 1024, "A" * 2047,
+                   "A" * 2048, "A" * 4096, "A" * 4097, "A" * 5000, "A" * 10000, "A" * 20000, "A" * 32762, "A" * 32763,
+                   "A" * 32764, "A" * 32765, "A" * 32766, "A" * 32767, "A" * 32768, "A" * 65534, "A" * 65535,
+                   "A" * 65536, "%x" * 1024, "%n" * 1025, "%s" * 2048, "%s%n%x%d" * 5000, "%s" * 30000, "%s" * 40000,
+                   "%.1024d", "%.2048d", "%.4096d", "%.8200d", "%99999999999s", "%99999999999d", "%99999999999x",
+                   "%99999999999n", "%99999999999s" * 1000, "%99999999999d" * 1000, "%99999999999x" * 1000,
+                   "%99999999999n" * 1000, "%08x" * 100, "%%20s" * 1000, "%%20x" * 1000, "%%20n" * 1000, "%%20d" * 1000,
+                   "%#0123456x%08x%x%s%p%n%d%o%u%c%h%l%q%j%z%Z%t%i%e%g%f%a%C%S%08x%%#0123456x%%x%%s%%p%%n%%d%%o%%u%%c%%h%%l%%q%%j%%z%%Z%%t%%i%%e%%g%%f%%a%%C%%S%%08x"]
 
-overflowstrings = ["A" * 255, "A" * 256, "A" * 257, "A" * 420, "A" * 511, "A" * 512, "A" * 1023, "A" * 1024, "A" * 2047, "A" * 2048, "A" * 4096, "A" * 4097, "A" * 5000, "A" * 10000, "A" * 20000, "A" * 32762, "A" * 32763, "A" * 32764, "A" * 32765, "A" * 32766, "A" * 32767, "A" * 32768, "A" * 65534, "A" * 65535, "A" * 65536, "%x" * 1024, "%n" * 1025 , "%s" * 2048, "%s%n%x%d" * 5000, "%s" * 30000, "%s" * 40000, "%.1024d", "%.2048d", "%.4096d", "%.8200d", "%99999999999s", "%99999999999d", "%99999999999x", "%99999999999n", "%99999999999s" * 1000, "%99999999999d" * 1000, "%99999999999x" * 1000, "%99999999999n" * 1000, "%08x" * 100, "%%20s" * 1000,"%%20x" * 1000,"%%20n" * 1000,"%%20d" * 1000, "%#0123456x%08x%x%s%p%n%d%o%u%c%h%l%q%j%z%Z%t%i%e%g%f%a%C%S%08x%%#0123456x%%x%%s%%p%%n%%d%%o%%u%%c%%h%%l%%q%%j%%z%%Z%%t%%i%%e%%g%%f%%a%%C%%S%%08x"]
 
 def bitflipping(data):
     l = len(data)
-    n = int(l*7/100) # 7% of the bytes to be modified
+    n = int(l * 7 / 100)  # 7% of the bytes to be modified
 
-    for i in range(0,n): # We change the bytes
-        r = randint(0,l-1)
-        data = data[0:r] + chr(randint(0,255)) + data[r+1:]
+    for i in range(0, n):  # We change the bytes
+        r = randint(0, l - 1)
+        data = data[0:r] + str.encode(chr(randrange(0, 255))) + data[r + 1:]
     return data
+
 
 def bofinjection(data):
     l = len(data)
-    r = randint(0,len(overflowstrings)-1)
-    data = data[0:r] + overflowstrings[r] + data[r-l:]
+    r = randint(0, len(overflowstrings) - 1)
+    data = data[0:r] + str.encode(overflowstrings[r]) + data[r - l:]
     return data
+
 
 def fuzz(data):
-
-    r = randint(0,5)
-    if r==0:
+    r = randint(0, 5)
+    if r == 0:
         data = bitflipping(data)
 
-    r = randint(0,5)
-    if r==0:
+    r = randint(0, 5)
+    if r == 0:
         data = bofinjection(data)
     return data
+
 
 def startudpproxy():
     reactor.listenUDP(localport, Server())
     reactor.run()
 
+
 def starttcpproxy():
     reactor.listenTCP(localport, portforward.ProxyFactory(desthost, destport))
     reactor.run()
 
+
 def usage():
-    #print "###############################################################"
-    print
-    print "ProxyFuzz 0.1, Simple fuzzing proxy by Rodrigo Marcos"
-    print "https://www.secforce.com"
-    print
-    print "usage():"
-    #print
-    print "python proxyfuzz -l <localport> -r <remotehost> -p <remoteport> [options]"
-    print
-    print " [options]"
-    print "    -c: Fuzz only client side (both otherwise)"
-    print "    -s: Fuzz only server side (both otherwise)"
-    print "    -w: Number of requests to send before start fuzzing"
-    print "    -u: UDP protocol (otherwise TCP is used)"
-    print "    -v: Verbose (outputs network traffic)"
-    print "    -h: Help page"
+    # print "###############################################################"
+    # use  'ulimit -n 4096' when too mane open files
+    print('')
+    print("ProxyFuzz 0.1, Simple fuzzing proxy by Rodrigo Marcos")
+    print("http://www.secforce.co.uk")
+    print('')
+    print("usage():")
+    print('')
+    print("proxyfuzz -l <localport> -r <remotehost> -p <remoteport> [options]")
+    print('')
+    print(" [options]")
+    print("		-c: Fuzz only client side (both otherwise)")
+    print("		-s: Fuzz only server side (both otherwise)")
+    print("		-w: Number of requests to send before start fuzzing")
+    print("		-u: UDP protocol (otherwise TCP is used)")
+    print("		-v: Verbose (outputs network traffic)")
+    print("		-h: Help page")
 
 
 verbose = False
@@ -167,6 +204,8 @@ desthost = ""
 destport = 0
 testclient = 1
 testserver = 1
+
+
 def main():
     global verbose
     global notuntil
@@ -188,38 +227,39 @@ def main():
                 usage()
                 sys.exit()
             if o == "-l":
-                localport=int(a)
+                localport = int(a)
             if o == "-r":
-                desthost=a
+                desthost = a
             if o == "-p":
-                destport=int(a)
+                destport = int(a)
             if o == "-v":
                 verbose = True
             if o == "-w":
-                notuntil=int(a)
+                notuntil = int(a)
             if o == "-u":
-                proto="udp"
-            if o == "-c": # Only client
-                testserver=0
-            if o == "-s": # Only server
-                testclient=0
+                proto = "udp"
+            if o == "-c":  # Only client
+                testserver = 0
+            if o == "-s":  # Only server
+                testclient = 0
 
 
     except:
         usage()
         sys.exit(2)
 
-    if testserver==0 and testclient==0:
+    if testserver == 0 and testclient == 0:
         usage()
         sys.exit(2)
-    elif localport==0 or desthost=="" or destport==0:
+    elif localport == 0 or desthost == "" or destport == 0:
         usage()
         sys.exit(2)
     else:
-        if proto=="tcp":
+        if proto == "tcp":
             starttcpproxy()
-        else: # UDP
+        else:  # UDP
             startudpproxy()
 
+
 if __name__ == "__main__":
-main()
+    main()
